@@ -5,6 +5,7 @@ from ...storage.crud import store_prediction
 from ...ml.train import ModelTrainer
 from ...ml.predict import ModelPredictor
 from ...tasks.ml_tasks import train_model_task, predict_task
+from ...tasks.celery_app import get_task_result
 from ..schemas import (
     TrainRequest, TrainResponse,
     PredictionRequest, PredictionResponse,
@@ -29,13 +30,12 @@ def train_model_endpoint(request: TrainRequest):
     )
 
 
-@router.post("/train/async")
-def train_model_async_endpoint(request: TrainRequest):
+@router.post("/train/background")
+def train_model_background_endpoint(request: TrainRequest):
     start_date = request.start_date.isoformat() if request.start_date else None
     end_date = request.end_date.isoformat() if request.end_date else None
-
-    task = train_model_task.delay(request.ticker, start_date, end_date)
-    return {"task_id": task.id, "status": "submitted", "ticker": request.ticker}
+    task_id = train_model_task(request.ticker, start_date, end_date)
+    return {"task_id": task_id, "status": "submitted", "ticker": request.ticker}
 
 
 @router.post("/predict", response_model=PredictionResponse)
@@ -59,19 +59,13 @@ def predict_endpoint(request: PredictionRequest, db: Session = Depends(get_db)):
     return PredictionResponse(**result)
 
 
-@router.post("/predict/async")
-def predict_async_endpoint(request: PredictionRequest):
-    task = predict_task.delay(request.ticker, request.days_ahead)
-    return {"task_id": task.id, "status": "submitted", "ticker": request.ticker}
+@router.post("/predict/background")
+def predict_background_endpoint(request: PredictionRequest):
+    task_id = predict_task(request.ticker, request.days_ahead)
+    return {"task_id": task_id, "status": "submitted", "ticker": request.ticker}
 
 
 @router.get("/tasks/{task_id}")
 def get_task_status(task_id: str):
-    from ...tasks.celery_app import celery_app
-
-    result = celery_app.AsyncResult(task_id)
-    return {
-        "task_id": task_id,
-        "status": result.state,
-        "result": result.result if result.ready() else None,
-    }
+    result = get_task_result(task_id)
+    return {"task_id": task_id, **result}

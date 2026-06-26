@@ -54,14 +54,13 @@ def fetch_and_store_endpoint(
     return {"ticker": ticker, "stored": count, "total": len(stock_data.data)}
 
 
-@router.post("/{ticker}/fetch/async")
-def fetch_and_store_async_endpoint(
+@router.post("/{ticker}/fetch/background")
+def fetch_and_store_background_endpoint(
     ticker: str,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
 ):
     start = start_date.isoformat() if start_date else None
     end = end_date.isoformat() if end_date else None
-
-    task = fetch_stock_data_task.delay(ticker, start, end)
-    return {"task_id": task.id, "status": "submitted", "ticker": ticker}
+    task_id = fetch_stock_data_task(ticker, start, end)
+    return {"task_id": task_id, "status": "submitted", "ticker": ticker}

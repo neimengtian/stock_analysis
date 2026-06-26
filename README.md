@@ -5,11 +5,11 @@
 ## 功能特性
 
 - **数据获取** - 通过 yfinance 获取股票 OHLCV 数据，支持单只/批量获取
-- **数据存储** - PostgreSQL 持久化存储股票数据与预测结果
+- **数据存储** - SQLite 本地存储股票数据与预测结果
 - **机器学习** - 基于 RandomForest 的股票价格预测模型
 - **REST API** - FastAPI 提供完整的数据与模型接口
-- **异步任务** - Celery + Redis 实现后台训练与数据更新
-- **定时调度** - 每日自动获取数据并重新训练模型
+- **后台任务** - 支持异步执行耗时操作（训练、数据获取）
+- **离线分析** - 专注于本地数据分析与模型训练
 
 ## 项目结构
 
@@ -24,15 +24,15 @@ stock_analysis/
 │   │   ├── predict.py     # 模型预测
 │   │   └── models/        # 保存的模型文件
 │   ├── storage/           # 数据存储模块
-│   │   ├── database.py    # 数据库连接
+│   │   ├── database.py    # 数据库连接 (SQLite)
 │   │   ├── models.py      # SQLAlchemy 模型
 │   │   └── crud.py        # 数据库操作
 │   ├── api/               # API 接口模块
 │   │   ├── main.py        # FastAPI 应用
 │   │   ├── schemas.py     # 请求/响应模型
 │   │   └── routes/        # 路由定义
-│   └── tasks/             # 异步任务模块
-│       ├── celery_app.py  # Celery 配置
+│   └── tasks/             # 后台任务模块
+│       ├── celery_app.py  # 任务执行器
 │       ├── ml_tasks.py    # ML 任务
 │       ├── data_tasks.py  # 数据任务
 │       └── scheduler.py   # 定时任务
@@ -47,8 +47,6 @@ stock_analysis/
 ### 环境要求
 
 - Python 3.10+
-- PostgreSQL
-- Redis
 
 ### 安装
 
@@ -62,11 +60,10 @@ pip install -r requirements.txt
 
 ### 配置
 
-创建 `.env` 文件：
+创建 `.env` 文件（可选）：
 
 ```env
-DATABASE_URL=postgresql://user:password@localhost:5432/stock_analysis
-REDIS_URL=redis://localhost:6379/0
+DATABASE_URL=sqlite:///stock_data.db
 ```
 
 ### 数据库迁移
@@ -78,14 +75,7 @@ alembic upgrade head
 ### 启动服务
 
 ```bash
-# API 服务
 python main.py
-
-# Celery Worker
-celery -A src.tasks.celery_app worker -l info
-
-# Celery Beat (定时任务)
-celery -A src.tasks.celery_app beat -l info
 ```
 
 ## API 接口
@@ -97,18 +87,18 @@ celery -A src.tasks.celery_app beat -l info
 | POST | `/stocks/` | 创建股票记录 |
 | GET | `/stocks/{ticker}` | 获取股票信息 |
 | GET | `/stocks/{ticker}/prices` | 获取历史价格 |
-| POST | `/stocks/{ticker}/fetch` | 从 yfinance 获取数据 |
-| POST | `/stocks/{ticker}/fetch/async` | 异步获取数据 |
+| POST | `/stocks/{ticker}/fetch` | 获取数据（同步） |
+| POST | `/stocks/{ticker}/fetch/background` | 获取数据（后台） |
 
 ### 机器学习
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/ml/train` | 训练模型 |
-| POST | `/ml/train/async` | 异步训练模型 |
-| POST | `/ml/predict` | 获取预测 |
-| POST | `/ml/predict/async` | 异步获取预测 |
-| GET | `/ml/tasks/{task_id}` | 查询任务状态 |
+| POST | `/ml/train` | 训练模型（同步） |
+| POST | `/ml/train/background` | 训练模型（后台） |
+| POST | `/ml/predict` | 获取预测（同步） |
+| POST | `/ml/predict/background` | 获取预测（后台） |
+| GET | `/ml/tasks/{task_id}` | 查询后台任务状态 |
 
 ### 示例
 
@@ -138,8 +128,7 @@ pytest tests/
 - **后端框架**: FastAPI
 - **机器学习**: scikit-learn, pandas, numpy
 - **数据源**: yfinance
-- **数据库**: PostgreSQL + SQLAlchemy
-- **任务队列**: Celery + Redis
+- **数据库**: SQLite + SQLAlchemy
 - **数据库迁移**: Alembic
 
 ## License

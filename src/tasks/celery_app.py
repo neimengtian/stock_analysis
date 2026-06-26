@@ -1,28 +1,26 @@
-import os
-from celery import Celery
-from dotenv import load_dotenv
+import logging
+from concurrent.futures import ThreadPoolExecutor
+from typing import Callable, Any
 
-load_dotenv()
+logger = logging.getLogger(__name__)
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+executor = ThreadPoolExecutor(max_workers=4)
 
-celery_app = Celery(
-    "stock_analysis",
-    broker=REDIS_URL,
-    backend=REDIS_URL,
-)
+_task_results: dict[str, Any] = {}
 
-celery_app.conf.update(
-    task_serializer="json",
-    accept_content=["json"],
-    result_serializer="json",
-    timezone="UTC",
-    enable_utc=True,
-    task_track_started=True,
-    task_time_limit=3600,
-    task_soft_time_limit=3000,
-    worker_prefetch_multiplier=1,
-    worker_max_tasks_per_child=100,
-)
 
-celery_app.autodiscover_tasks(["src.tasks"])
+def run_background(task_id: str, func: Callable, *args, **kwargs) -> str:
+    def _wrapper():
+        try:
+            result = func(*args, **kwargs)
+            _task_results[task_id] = {"status": "completed", "result": result}
+        except Exception as e:
+            logger.error(f"Task {task_id} failed: {e}")
+            _task_results[task_id] = {"status": "failed", "error": str(e)}
+
+    executor.submit(_wrapper)
+    return task_id
+
+
+def get_task_result(task_id: str) -> dict:
+    return _task_results.get(task_id, {"status": "unknown"})

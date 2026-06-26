@@ -1,34 +1,44 @@
-from celery.schedules import crontab
-from .celery_app import celery_app
+import logging
+from datetime import datetime, time
+from threading import Thread, Event
+from .data_tasks import fetch_multiple_stocks_task
+from .ml_tasks import train_model_task
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_TICKERS = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA"]
 
 
-@celery_app.on_after_configure.connect
-def setup_periodic_tasks(sender, **kwargs):
-    sender.add_periodic_task(
-        crontab(hour=18, minute=0),
-        fetch_daily_data.s(),
-        name="fetch-daily-data",
-    )
+class TaskScheduler:
+    def __init__(self, tickers: list[str] = None):
+        self.tickers = tickers or DEFAULT_TICKERS
+        self._stop_event = Event()
+        self._thread = None
 
-    sender.add_periodic_task(
-        crontab(hour=19, minute=0),
-        retrain_models.s(),
-        name="retrain-models",
-    )
+    def run_daily_fetch(self):
+        logger.info("Running daily data fetch")
+        fetch_multiple_stocks_task(self.tickers)
 
+    def run_daily_retrain(self):
+        logger.info("Running daily model retraining")
+        for ticker in self.tickers:
+            train_model_task(ticker)
 
-@celery_app.task(name="scheduler.fetch_daily_data")
-def fetch_daily_data():
-    from .data_tasks import fetch_multiple_stocks_task
+    def start(self, fetch_hour: int = 18, retrain_hour: int = 19):
+        def _loop():
+            while not self._stop_event.is_set():
+                now = datetime.now()
+                if now.hour == fetch_hour and now.minute == 0:
+                    self.run_daily_fetch()
+                if now.hour == retrain_hour and now.minute == 0:
+                    self.run_daily_retrain()
+                self._stop_event.wait(60)
 
-    tickers = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA"]
-    return fetch_multiple_stocks_task.delay(tickers)
+        self._thread = Thread(target=_loop, daemon=True)
+        self._thread.start()
+        logger.info(f"Scheduler started: fetch at {fetch_hour}:00, retrain at {retrain_hour}:00")
 
-
-@celery_app.task(name="scheduler.retrain_models")
-def retrain_models():
-    from .ml_tasks import train_model_task
-
-    tickers = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA"]
-    for ticker in tickers:
-        train_model_task.delay(ticker)
+    def stop(self):
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join()
